@@ -45,8 +45,13 @@ CASAIS_FILE = DATA_DIR / "casais.json"
 # ==========================================================================
 def _carregar() -> dict:
     if CASAIS_FILE.exists():
-        with open(CASAIS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
+        try:
+            with open(CASAIS_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict) and "casais" in data:
+                return data
+        except (json.JSONDecodeError, ValueError):
+            print(f"[CASAIS] Arquivo {CASAIS_FILE} vazio ou corrompido — usando default.")
     return {"casais": []}
 
 
