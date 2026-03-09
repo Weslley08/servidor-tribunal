@@ -1,0 +1,12 @@
+# Ambiente
+.env
+__pycache__/
+*.pyc
+
+# Dados locais
+data/
+
+# Sistema
+nul
+.DS_Store
+Thumbs.db
