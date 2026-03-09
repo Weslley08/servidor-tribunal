@@ -9,6 +9,7 @@ Dados salvos em data/casais.json.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
@@ -26,6 +27,7 @@ from src.config import (
     EMOJI_CULPADO,
     EMOJI_INOCENTE,
     CANAL_CASAIS,
+    CATEGORIA_CASOS_ATIVOS,
 )
 
 BRT = timezone(timedelta(hours=-3))
@@ -272,6 +274,19 @@ def embed_casal_separado(
     return embed
 
 
+# -- Pedidos pendentes (channel_id -> PedidoData) -------------------------
+pedidos_pendentes: dict[int, "PedidoData"] = {}
+
+
+class PedidoData:
+    """Dados de um pedido de casal pendente."""
+    def __init__(self, membro1_id: int, membro2_id: int, channel_id: int):
+        self.membro1_id = membro1_id
+        self.membro2_id = membro2_id
+        self.channel_id = channel_id
+        self.aceitos: set[int] = set()  # IDs que aceitaram
+
+
 # ==========================================================================
 #  Views e Modais
 # ==========================================================================
@@ -317,21 +332,159 @@ class SelecionarCasalView(ui.View):
                 f"**{membro2.display_name}** ja esta em um casal! "
                 "Precisa separar primeiro.", ephemeral=True)
 
-        ok = registrar_casal(membro1.id, membro2.id)
-        if not ok:
+        # Criar ticket de pedido
+        cat_casos = discord.utils.get(guild.categories, name=CATEGORIA_CASOS_ATIVOS)
+        if cat_casos is None:
             return await interaction.response.send_message(
-                "Esse casal ja esta registrado!", ephemeral=True)
+                "Categoria de casos nao encontrada. Reinicie o bot.",
+                ephemeral=True)
 
-        embed = embed_casal_registrado(membro1, membro2)
-        await interaction.response.send_message(
-            content=f"{membro1.mention} {EMOJI_CORACAO} {membro2.mention} foram oficializados!",
-            embed=embed,
+        overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            guild.me: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True,
+                manage_channels=True, manage_messages=True, embed_links=True,
+            ),
+            membro1: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True,
+            ),
+            membro2: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True,
+            ),
+        }
+
+        canal = await cat_casos.create_text_channel(
+            name=f"{EMOJI_ALIANCA}\u2503\u1d18\u1d07\u1d05\u026a\u1d05\u1d0f",  # 💍┃ᴘᴇᴅɪᴅᴏ
+            topic=f"Pedido de casal: {membro1.display_name} e {membro2.display_name}",
+            overwrites=overwrites,
+            reason=f"Pedido de casal por {interaction.user}",
         )
 
-        await atualizar_casais_canal(guild)
+        # Registrar pedido pendente
+        pedido = PedidoData(membro1.id, membro2.id, canal.id)
+        pedidos_pendentes[canal.id] = pedido
+
+        # Enviar embed no ticket
+        embed = discord.Embed(
+            title=f"{EMOJI_ALIANCA} Pedido de Casal",
+            description=(
+                f"{membro1.mention} {EMOJI_CORACAO} {membro2.mention}\n\n"
+                "**Ambos** precisam aceitar para oficializar o casal.\n"
+                "Se qualquer um recusar, o pedido sera cancelado.\n\n"
+                f"> {EMOJI_ALIANCA} Clique em **Aceitar** para confirmar\n"
+                f"> {EMOJI_QUEBRADO} Clique em **Recusar** para negar"
+            ),
+            color=COR_ABERTURA,
+            timestamp=datetime.now(BRT),
+        )
+        embed.set_footer(text="Tribunal // Aguardando confirmacao")
+
+        await canal.send(
+            content=f"{membro1.mention} {membro2.mention} -- Confirmem o pedido!",
+            embed=embed,
+            view=PedidoCasalView(),
+        )
+
+        await interaction.response.send_message(
+            f"{EMOJI_ALIANCA} Pedido criado! Veja em {canal.mention}\n"
+            "Ambos precisam aceitar para oficializar.",
+            ephemeral=True,
+        )
 
     async def on_timeout(self):
-        pass  # view efemera, nada a fazer
+        pass
+
+
+class PedidoCasalView(ui.View):
+    """Botoes de Aceitar/Recusar no ticket de pedido de casal. Persistente."""
+
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @ui.button(
+        label="Aceitar",
+        style=discord.ButtonStyle.success,
+        emoji=EMOJI_CORACAO,
+        custom_id="casais:aceitar_pedido",
+        row=0,
+    )
+    async def btn_aceitar(self, interaction: discord.Interaction, button: ui.Button):
+        pedido = pedidos_pendentes.get(interaction.channel_id)
+        if pedido is None:
+            return await interaction.response.send_message(
+                "Pedido nao encontrado ou ja finalizado.", ephemeral=True)
+
+        user = interaction.user
+        if user.id not in (pedido.membro1_id, pedido.membro2_id):
+            return await interaction.response.send_message(
+                "Apenas os membros do casal podem aceitar!", ephemeral=True)
+
+        if user.id in pedido.aceitos:
+            return await interaction.response.send_message(
+                "Voce ja aceitou! Aguardando o outro.", ephemeral=True)
+
+        pedido.aceitos.add(user.id)
+        await interaction.response.send_message(
+            f"{EMOJI_CORACAO} {user.mention} aceitou o pedido!")
+
+        # Verificar se ambos aceitaram
+        if pedido.membro1_id in pedido.aceitos and pedido.membro2_id in pedido.aceitos:
+            guild = interaction.guild
+
+            ok = registrar_casal(pedido.membro1_id, pedido.membro2_id)
+            if not ok:
+                await interaction.channel.send("Esse casal ja esta registrado!")
+            else:
+                m1 = guild.get_member(pedido.membro1_id)
+                m2 = guild.get_member(pedido.membro2_id)
+                embed = embed_casal_registrado(m1, m2)
+                await interaction.channel.send(
+                    content=f"{EMOJI_ALIANCA} **Casal oficializado!**",
+                    embed=embed,
+                )
+                await atualizar_casais_canal(guild)
+
+            # Limpar e deletar canal apos 10s
+            del pedidos_pendentes[interaction.channel_id]
+            await interaction.channel.send(
+                "*Este canal sera fechado em 10 segundos...*")
+            await asyncio.sleep(10)
+            try:
+                await interaction.channel.delete(reason="Pedido de casal finalizado")
+            except discord.NotFound:
+                pass
+
+    @ui.button(
+        label="Recusar",
+        style=discord.ButtonStyle.danger,
+        emoji=EMOJI_QUEBRADO,
+        custom_id="casais:recusar_pedido",
+        row=0,
+    )
+    async def btn_recusar(self, interaction: discord.Interaction, button: ui.Button):
+        pedido = pedidos_pendentes.get(interaction.channel_id)
+        if pedido is None:
+            return await interaction.response.send_message(
+                "Pedido nao encontrado ou ja finalizado.", ephemeral=True)
+
+        user = interaction.user
+        if user.id not in (pedido.membro1_id, pedido.membro2_id):
+            return await interaction.response.send_message(
+                "Apenas os membros do casal podem recusar!", ephemeral=True)
+
+        await interaction.response.send_message(
+            f"{EMOJI_QUEBRADO} {user.mention} recusou o pedido. Casal **nao** registrado.")
+
+        # Limpar e deletar canal apos 10s
+        if interaction.channel_id in pedidos_pendentes:
+            del pedidos_pendentes[interaction.channel_id]
+        await interaction.channel.send(
+            "*Este canal sera fechado em 10 segundos...*")
+        await asyncio.sleep(10)
+        try:
+            await interaction.channel.delete(reason="Pedido de casal recusado")
+        except discord.NotFound:
+            pass  # view efemera, nada a fazer
 
 
 class CasaisView(ui.View):
