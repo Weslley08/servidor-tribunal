@@ -157,13 +157,29 @@ def embed_caso_aberto(
 ) -> discord.Embed:
     embed = discord.Embed(
         title=f"{EMOJI_TRIBUNAL} Caso #{numero:04d} -- Tribuna Aberta",
-        description=f"**Acusacao:**\n>>> {acusacao}",
+        description=(
+            f"**Resumo do caso:**\n"
+            f"> {vitima.mention} (**vitima**) acusa {reu.mention} (**reu**) "
+            f"no seguinte contexto:\n"
+            f">>> {acusacao}\n"
+        ),
         color=COR_ABERTURA,
         timestamp=datetime.now(BRT),
     )
     embed.add_field(name="Aberto por", value=autor.mention, inline=True)
     embed.add_field(name=CARGO_REU, value=reu.mention, inline=True)
     embed.add_field(name=CARGO_VITIMA, value=vitima.mention, inline=True)
+    embed.add_field(
+        name="\u200b",
+        value=(
+            f"**Quer participar do julgamento?**\n"
+            f"> {EMOJI_ADVOGADO} **{CARGO_ADVOGADO}** -- Defende o reu ({reu.display_name})\n"
+            f"> {EMOJI_PROMOTOR} **{CARGO_PROMOTOR}** -- Acusa em nome da vitima ({vitima.display_name})\n"
+            f"> {EMOJI_JUIZ} **{CARGO_JUIZ}** -- Conduz o processo e da o veredito\n\n"
+            f"*Use os botoes abaixo para assumir um papel.*"
+        ),
+        inline=False,
+    )
     embed.add_field(name=CARGO_JUIZ, value="*Aguardando...*", inline=True)
     embed.add_field(name=CARGO_ADVOGADO, value="*Aguardando...*", inline=True)
     embed.add_field(name=CARGO_PROMOTOR, value="*Aguardando...*", inline=True)
@@ -172,7 +188,7 @@ def embed_caso_aberto(
         value="Acusacao: 0 | Defesa: 0",
         inline=False,
     )
-    embed.set_footer(text="Apresente provas e assuma um papel usando os botoes.")
+    embed.set_footer(text="Leia o resumo acima e escolha seu papel usando os botoes.")
     return embed
 
 
