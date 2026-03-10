@@ -541,15 +541,73 @@ class CasaisView(ui.View):
             casal["membro2_id"] if casal["membro1_id"] == interaction.user.id
             else casal["membro1_id"]
         )
-        remover_casal(casal["membro1_id"], casal["membro2_id"])
-
         guild = interaction.guild
         parceiro = guild.get_member(parceiro_id)
-        embed = embed_casal_separado(interaction.user, parceiro or parceiro_id)
-        await interaction.response.send_message(embed=embed)
+        nome_parceiro = parceiro.display_name if parceiro else f"<@{parceiro_id}>"
 
-        # Atualizar ranking de casais
+        embed_conf = discord.Embed(
+            title=f"{EMOJI_QUEBRADO} Confirmar Separacao",
+            description=(
+                f"Voce quer se separar de **{nome_parceiro}**?\n\n"
+                "O registro do casal sera removido, mas o historico permanece.\n"
+                "Essa acao e **irreversivel**."
+            ),
+            color=0xE74C3C,
+        )
+        await interaction.response.send_message(
+            embed=embed_conf,
+            view=ConfirmarSeparacaoView(
+                interaction.user.id,
+                casal["membro1_id"], casal["membro2_id"],
+                parceiro_id,
+            ),
+            ephemeral=True,
+        )
+
+
+class ConfirmarSeparacaoView(ui.View):
+    """Confirmacao antes de separar o casal."""
+
+    def __init__(self, user_id: int, membro1_id: int, membro2_id: int, parceiro_id: int):
+        super().__init__(timeout=30)
+        self.user_id = user_id
+        self.membro1_id = membro1_id
+        self.membro2_id = membro2_id
+        self.parceiro_id = parceiro_id
+
+    @ui.button(
+        label="Sim, Separar",
+        style=discord.ButtonStyle.danger,
+        emoji=EMOJI_QUEBRADO,
+        row=0,
+    )
+    async def btn_confirmar(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message(
+                "Somente quem iniciou pode confirmar.", ephemeral=True)
+
+        remover_casal(self.membro1_id, self.membro2_id)
+
+        guild = interaction.guild
+        parceiro = guild.get_member(self.parceiro_id)
+        embed = embed_casal_separado(interaction.user, parceiro or self.parceiro_id)
+        await interaction.response.edit_message(embed=embed, view=None)
+
         await atualizar_casais_canal(guild)
+
+    @ui.button(
+        label="Cancelar",
+        style=discord.ButtonStyle.secondary,
+        row=0,
+    )
+    async def btn_cancelar(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.edit_message(
+            content="Separacao cancelada.", embed=None, view=None,
+        )
+        self.stop()
+
+    async def on_timeout(self):
+        pass
 
 
 async def atualizar_casais_canal(guild: discord.Guild) -> None:

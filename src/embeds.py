@@ -22,6 +22,7 @@ from src.config import (
     EMOJI_ABRIR,
     EMOJI_FECHAR,
     EMOJI_PROVA,
+    EMOJI_RANKING,
     CARGO_JUIZ,
     CARGO_ADVOGADO,
     CARGO_PROMOTOR,
@@ -30,6 +31,37 @@ from src.config import (
 )
 
 BRT = timezone(timedelta(hours=-3))
+
+# -- Helpers visuais -------------------------------------------------------
+BARRA_CHEIA = "\u2588"   # █
+BARRA_VAZIA = "\u2591"   # ░
+CHECK = "\u2705"          # ✅
+PENDENTE = "\u23f3"       # ⏳
+
+
+def _barra_progresso(etapas_concluidas: int, total: int, tamanho: int = 8) -> str:
+    """Gera uma barra de progresso visual."""
+    preenchido = round(etapas_concluidas / total * tamanho) if total > 0 else 0
+    vazio = tamanho - preenchido
+    return f"`{BARRA_CHEIA * preenchido}{BARRA_VAZIA * vazio}` {etapas_concluidas}/{total}"
+
+
+def _checklist_caso(
+    advogado: bool, promotor: bool,
+    provas_acusacao: int, provas_defesa: int,
+) -> str:
+    """Gera checklist visual do caso."""
+    items = [
+        (advogado, f"{EMOJI_ADVOGADO} Advogado definido"),
+        (promotor, f"{EMOJI_PROMOTOR} Promotor definido"),
+        (provas_acusacao > 0, f"{EMOJI_PROVA} Provas da acusacao ({provas_acusacao})"),
+        (provas_defesa > 0, f"{EMOJI_PROVA} Provas da defesa ({provas_defesa})"),
+    ]
+    linhas = []
+    for ok, texto in items:
+        icone = CHECK if ok else PENDENTE
+        linhas.append(f"> {icone} {texto}")
+    return "\n".join(linhas)
 
 
 # ==========================================================================
@@ -40,19 +72,29 @@ def embed_painel() -> discord.Embed:
         title=f"{EMOJI_TRIBUNAL} Tribunal",
         description=(
             "Aqui as partes resolvem seus conflitos perante o tribunal.\n"
-            "Cada caso e julgado com base em **provas** apresentadas.\n\n"
-            "**Como funciona:**\n"
-            f"> {EMOJI_ABRIR} Clique em **Abrir Tribuna** abaixo\n"
-            "> Preencha o formulario com a acusacao\n"
-            "> Um canal privado sera criado para o julgamento\n"
-            f"> {EMOJI_PROVA} Ambas as partes **devem apresentar provas**\n\n"
-            "**Papeis do julgamento:**\n"
-            f"> **{CARGO_JUIZ}** -- Conduz o processo e profere o veredito\n"
-            f"> **{CARGO_ADVOGADO}** -- Defende o reu\n"
-            f"> **{CARGO_PROMOTOR}** -- Acusa em nome da vitima\n\n"
-            "*Voluntarios assumem papeis via botoes dentro do caso.*"
+            "Cada caso e julgado com base em **provas** apresentadas.\n"
         ),
         color=COR_TRIBUNAL,
+    )
+    embed.add_field(
+        name=f"{EMOJI_ABRIR} Como funciona",
+        value=(
+            "> **1.** Clique em **Abrir Tribuna** abaixo\n"
+            "> **2.** Selecione o **reu** e a **vitima**\n"
+            "> **3.** Descreva a **acusacao**\n"
+            "> **4.** Um canal privado sera criado para o caso\n"
+            f"> **5.** Ambas as partes **devem** apresentar provas {EMOJI_PROVA}"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name=f"{EMOJI_JUIZ} Papeis do julgamento",
+        value=(
+            f"> **{CARGO_JUIZ}** -- Conduz e da o veredito\n"
+            f"> **{CARGO_ADVOGADO}** -- Defende o reu\n"
+            f"> **{CARGO_PROMOTOR}** -- Acusa pela vitima"
+        ),
+        inline=False,
     )
     embed.set_footer(text="Tribunal // Apresente provas. Defenda sua honra.")
     return embed
@@ -182,11 +224,15 @@ def embed_caso_aberto(
         ),
         inline=False,
     )
-    embed.add_field(name=CARGO_ADVOGADO, value="*Aguardando...*", inline=True)
-    embed.add_field(name=CARGO_PROMOTOR, value="*Aguardando...*", inline=True)
+    embed.add_field(name=CARGO_ADVOGADO, value=f"*{PENDENTE} Aguardando...*", inline=True)
+    embed.add_field(name=CARGO_PROMOTOR, value=f"*{PENDENTE} Aguardando...*", inline=True)
+    embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+    # Checklist inicial
+    checklist = _checklist_caso(False, False, 0, 0)
     embed.add_field(
-        name=f"{EMOJI_PROVA} Provas",
-        value="Acusacao: 0 | Defesa: 0",
+        name=f"Progresso {_barra_progresso(0, 4)}",
+        value=checklist,
         inline=False,
     )
     embed.set_footer(text="Leia o resumo acima e escolha seu papel usando os botoes.")
@@ -204,36 +250,54 @@ def embed_caso_atualizado(
     provas_acusacao: int = 0,
     provas_defesa: int = 0,
 ) -> discord.Embed:
+    # Calcular progresso
+    etapas = sum([
+        advogado is not None,
+        promotor is not None,
+        provas_acusacao > 0,
+        provas_defesa > 0,
+    ])
+    pronto = etapas == 4
+
+    cor = COR_INOCENTE if pronto else COR_ABERTURA
+
     embed = discord.Embed(
         title=f"{EMOJI_TRIBUNAL} Caso #{numero:04d}",
         description=f"**Acusacao:**\n>>> {acusacao}",
-        color=COR_ABERTURA,
+        color=cor,
     )
     embed.add_field(name=CARGO_REU, value=reu.mention, inline=True)
     embed.add_field(name=CARGO_VITIMA, value=vitima.mention, inline=True)
     embed.add_field(name="\u200b", value="\u200b", inline=True)
     embed.add_field(
         name=CARGO_ADVOGADO,
-        value=advogado.mention if advogado else "*Aguardando...*",
+        value=advogado.mention if advogado else f"*{PENDENTE} Aguardando...*",
         inline=True,
     )
     embed.add_field(
         name=CARGO_PROMOTOR,
-        value=promotor.mention if promotor else "*Aguardando...*",
+        value=promotor.mention if promotor else f"*{PENDENTE} Aguardando...*",
         inline=True,
     )
+    embed.add_field(name="\u200b", value="\u200b", inline=True)
+
+    # Checklist de progresso
+    checklist = _checklist_caso(
+        advogado is not None, promotor is not None,
+        provas_acusacao, provas_defesa,
+    )
     embed.add_field(
-        name=f"{EMOJI_PROVA} Provas",
-        value=f"Acusacao: {provas_acusacao} | Defesa: {provas_defesa}",
+        name=f"Progresso {_barra_progresso(etapas, 4)}",
+        value=checklist,
         inline=False,
     )
 
-    if juiz and advogado and promotor and provas_acusacao > 0 and provas_defesa > 0:
-        embed.set_footer(text=f"Tribunal pronto para o veredito. {EMOJI_VEREDITO}")
-    elif provas_acusacao == 0 or provas_defesa == 0:
-        embed.set_footer(text=f"Ambas as partes devem registrar provas. {EMOJI_PROVA}")
+    if pronto:
+        embed.set_footer(text=f"{CHECK} Caso pronto para o veredito! Aguardando o Juiz.")
+    elif provas_acusacao == 0 and provas_defesa == 0:
+        embed.set_footer(text=f"{EMOJI_PROVA} Ambas as partes devem registrar provas.")
     else:
-        embed.set_footer(text="Assuma um papel usando os botoes abaixo.")
+        embed.set_footer(text="Assuma um papel ou registre provas usando os botoes abaixo.")
     return embed
 
 
@@ -276,11 +340,13 @@ def embed_veredito(
     if culpado:
         titulo = f"{EMOJI_CULPADO} CULPADO"
         cor = COR_CULPADO
-        resultado = "O reu foi considerado **CULPADO**."
+        resultado = f"O reu {reu.mention} foi considerado **CULPADO**."
+        impacto = f"> {vitima.mention} vence no ranking\n> {reu.mention} perde no ranking"
     else:
         titulo = f"{EMOJI_INOCENTE} INOCENTE"
         cor = COR_INOCENTE
-        resultado = "O reu foi considerado **INOCENTE**."
+        resultado = f"O reu {reu.mention} foi considerado **INOCENTE**."
+        impacto = f"> {reu.mention} vence no ranking\n> {vitima.mention} perde no ranking"
 
     embed = discord.Embed(
         title=f"{EMOJI_VEREDITO} Caso #{numero:04d} -- {titulo}",
@@ -291,6 +357,11 @@ def embed_veredito(
     embed.add_field(name=CARGO_REU, value=reu.mention, inline=True)
     embed.add_field(name=CARGO_VITIMA, value=vitima.mention, inline=True)
     embed.add_field(name=CARGO_JUIZ, value=juiz.mention, inline=True)
+    embed.add_field(
+        name=f"{EMOJI_RANKING} Impacto no Ranking",
+        value=impacto,
+        inline=False,
+    )
     embed.set_footer(text="Tribunal // Caso encerrado -- ranking atualizado")
     return embed
 
@@ -317,6 +388,8 @@ def embed_historico(
     acusacao: str,
     culpado: bool | None,
     justificativa: str,
+    provas_acusacao: int = 0,
+    provas_defesa: int = 0,
 ) -> discord.Embed:
     if culpado is None:
         cor = COR_FECHAR
@@ -341,9 +414,15 @@ def embed_historico(
     embed.add_field(name=CARGO_JUIZ, value=_m(juiz), inline=True)
     embed.add_field(name=CARGO_ADVOGADO, value=_m(advogado), inline=True)
     embed.add_field(name=CARGO_PROMOTOR, value=_m(promotor), inline=True)
+    if provas_acusacao > 0 or provas_defesa > 0:
+        embed.add_field(
+            name=f"{EMOJI_PROVA} Provas",
+            value=f"Acusacao: **{provas_acusacao}** | Defesa: **{provas_defesa}**",
+            inline=True,
+        )
 
     if justificativa:
-        embed.add_field(name="Justificativa", value=justificativa[:1024], inline=False)
+        embed.add_field(name=f"{EMOJI_VEREDITO} Justificativa", value=justificativa[:1024], inline=False)
 
     embed.set_footer(text="Tribunal // Historico")
     return embed
@@ -361,31 +440,41 @@ def embed_resumo_caso(
     advogado: discord.Member | None = None,
     promotor: discord.Member | None = None,
 ) -> discord.Embed:
+    vagas_preenchidas = sum([advogado is not None, promotor is not None])
+
+    if vagas_preenchidas == 2:
+        status = "\u2705 Todos os papeis preenchidos"
+        cor = COR_INOCENTE
+    else:
+        vagas = 2 - vagas_preenchidas
+        status = f"{PENDENTE} {vagas} vaga(s) aberta(s)"
+        cor = COR_ABERTURA
+
     embed = discord.Embed(
         title=f"{EMOJI_TRIBUNAL} Caso #{numero:04d} -- Em andamento",
         description=(
             f"**{CARGO_VITIMA}** {vitima.mention} acusa **{CARGO_REU}** {reu.mention}:\n"
-            f">>> {acusacao[:500]}"
+            f">>> {acusacao[:400]}"
         ),
-        color=COR_ABERTURA,
+        color=cor,
         timestamp=datetime.now(BRT),
     )
     embed.add_field(
-        name="Papeis disponiveis",
-        value=(
-            f"{EMOJI_ADVOGADO} **{CARGO_ADVOGADO}** (defende o reu): "
-            f"{'`' + advogado.display_name + '`' if advogado else '*Vaga aberta!*'}\n"
-            f"{EMOJI_PROMOTOR} **{CARGO_PROMOTOR}** (acusa pela vitima): "
-            f"{'`' + promotor.display_name + '`' if promotor else '*Vaga aberta!*'}"
-        ),
-        inline=False,
+        name=f"{EMOJI_ADVOGADO} {CARGO_ADVOGADO} (defende o reu)",
+        value=f"> {'`' + advogado.display_name + '`' if advogado else '**Vaga aberta!** Clique abaixo'}",
+        inline=True,
+    )
+    embed.add_field(
+        name=f"{EMOJI_PROMOTOR} {CARGO_PROMOTOR} (acusa pela vitima)",
+        value=f"> {'`' + promotor.display_name + '`' if promotor else '**Vaga aberta!** Clique abaixo'}",
+        inline=True,
     )
     embed.add_field(
         name="Canal do caso",
         value=canal_ticket.mention,
-        inline=True,
+        inline=False,
     )
-    embed.set_footer(text="Use os botoes abaixo para se voluntariar!")
+    embed.set_footer(text=status)
     return embed
 
 
