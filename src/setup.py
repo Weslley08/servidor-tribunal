@@ -16,6 +16,7 @@ from src.config import (
     CANAL_REGRAS,
     CANAL_RANKING,
     CANAL_CASAIS,
+    CANAL_CASOS,
     CANAL_SALAO,
     CANAL_ADMIN,
     CHAT_RESENHA,
@@ -43,6 +44,7 @@ _TOPICS = {
     "canal_regras": "Regras do Tribunal",
     "canal_ranking": "Ranking de vitorias e derrotas",
     "canal_casais": "Registre seu casal e veja o ranking de relacionamentos",
+    "canal_casos": "Casos em andamento -- se voluntarie como advogado ou promotor!",
     "canal_salao": "Converse sobre os casos e de opinioes!",
     "canal_admin": "Painel administrativo do Tribunal (Juizes e Admins)",
     "canal_entradas": "Registro de novos membros no servidor",
@@ -112,6 +114,7 @@ async def setup_servidor(guild: discord.Guild) -> dict:
     canal_regras     = _buscar_texto(CANAL_REGRAS, cat_tribunal)
     canal_ranking    = _buscar_texto(CANAL_RANKING, cat_tribunal)
     canal_casais     = _buscar_texto(CANAL_CASAIS, cat_tribunal)
+    canal_casos      = _buscar_texto(CANAL_CASOS, cat_tribunal)
     canal_salao      = _buscar_texto(CANAL_SALAO, cat_tribunal)
     canal_admin      = _buscar_texto(CANAL_ADMIN, cat_tribunal)
     canal_entradas   = _buscar_texto(CANAL_ENTRADAS, cat_logs)
@@ -126,6 +129,7 @@ async def setup_servidor(guild: discord.Guild) -> dict:
     await _sync_topic(canal_regras, "canal_regras")
     await _sync_topic(canal_ranking, "canal_ranking")
     await _sync_topic(canal_casais, "canal_casais")
+    await _sync_topic(canal_casos, "canal_casos")
     await _sync_topic(canal_salao, "canal_salao")
     await _sync_topic(canal_admin, "canal_admin")
     await _sync_topic(canal_entradas, "canal_entradas")
@@ -146,6 +150,7 @@ async def setup_servidor(guild: discord.Guild) -> dict:
         "canal_regras": canal_regras,
         "canal_ranking": canal_ranking,
         "canal_casais": canal_casais,
+        "canal_casos": canal_casos,
         "canal_salao": canal_salao,
         "canal_admin": canal_admin,
         "cat_logs": cat_logs,

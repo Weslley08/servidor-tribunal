@@ -34,7 +34,7 @@ import discord
 
 from src.config import DISCORD_TOKEN, GUILD_ID, CANAL_COMANDOS_BOT, CANAL_ENTRADAS, CANAL_SAIDAS
 from src.setup import setup_servidor, enviar_embeds_fixos
-from src.tribunal import PainelView, CasoView, AdminView
+from src.tribunal import PainelView, CasoView, AdminView, CasoPublicoView
 from src.casais import PedidoCasalView
 
 
@@ -85,6 +85,7 @@ def main():
         client.add_view(CasoView())
         client.add_view(AdminView())
         client.add_view(PedidoCasalView())
+        client.add_view(CasoPublicoView())
 
         # Auto-setup: cria cargos/canais e envia embeds fixos
         guild = client.get_guild(int(GUILD_ID))

@@ -25,6 +25,7 @@ from discord import ui
 from src.config import (
     CATEGORIA_CASOS_ATIVOS,
     CANAL_HISTORICO,
+    CANAL_CASOS,
     CARGO_JUIZ,
     CARGO_ADVOGADO,
     CARGO_PROMOTOR,
@@ -46,6 +47,8 @@ from src.embeds import (
     embed_veredito,
     embed_caso_fechado,
     embed_historico,
+    embed_resumo_caso,
+    embed_resumo_caso_encerrado,
 )
 from src.casais import (
     SelecionarCasalView,
@@ -101,6 +104,7 @@ class CasoData:
         self.acusacao = acusacao
         self.channel_id = channel_id
         self.message_id = message_id
+        self.resumo_msg_id: int | None = None  # msg no canal de casos
 
         self.juiz_id: int | None = None
         self.advogado_id: int | None = None
@@ -282,6 +286,16 @@ class AbrirTribunaModal(ui.Modal, title="Abrir Tribuna"):
         caso.message_id = msg.id
         casos_ativos[canal.id] = caso
 
+        # Publicar resumo no canal de casos em andamento
+        canal_casos = discord.utils.get(guild.text_channels, name=CANAL_CASOS)
+        if canal_casos:
+            resumo_embed = embed_resumo_caso(
+                numero, reu, vitima, acusacao, canal,
+            )
+            resumo_view = CasoPublicoView(canal.id)
+            resumo_msg = await canal_casos.send(embed=resumo_embed, view=resumo_view)
+            caso.resumo_msg_id = resumo_msg.id
+
         await interaction.response.send_message(
             f"Tribuna **#{numero:04d}** aberta! Veja em {canal.mention}",
             ephemeral=True,
@@ -296,29 +310,6 @@ class CasoView(ui.View):
 
     def __init__(self):
         super().__init__(timeout=None)
-
-    @ui.button(
-        label="Ser Juiz", style=discord.ButtonStyle.secondary,
-        emoji=EMOJI_JUIZ, custom_id="caso:juiz", row=0,
-    )
-    async def btn_juiz(self, interaction: discord.Interaction, button: ui.Button):
-        caso = _get_caso(interaction)
-        if caso is None:
-            return await interaction.response.send_message("Caso nao encontrado.", ephemeral=True)
-
-        user = interaction.user
-        if user.id in (caso.reu_id, caso.vitima_id):
-            return await interaction.response.send_message(
-                "Reu/Vitima nao pode ser Juiz!", ephemeral=True)
-        if caso.juiz_id is not None:
-            return await interaction.response.send_message(
-                "Ja existe um Juiz neste caso.", ephemeral=True)
-
-        caso.juiz_id = user.id
-        await _atualizar_embed_caso(interaction, caso)
-        await interaction.response.send_message(
-            f"{user.mention} assumiu como **{CARGO_JUIZ}**!")
-        await _atribuir_cargo(interaction.guild, user, CARGO_JUIZ)
 
     @ui.button(
         label="Ser Advogado (Reu)", style=discord.ButtonStyle.primary,
@@ -344,6 +335,7 @@ class CasoView(ui.View):
         await interaction.response.send_message(
             f"{user.mention} assumiu como **{CARGO_ADVOGADO}**!")
         await _atribuir_cargo(interaction.guild, user, CARGO_ADVOGADO)
+        await _atualizar_resumo_caso(interaction.guild, caso)
 
     @ui.button(
         label="Ser Promotor (Vitima)", style=discord.ButtonStyle.danger,
@@ -369,6 +361,7 @@ class CasoView(ui.View):
         await interaction.response.send_message(
             f"{user.mention} assumiu como **{CARGO_PROMOTOR}**!")
         await _atribuir_cargo(interaction.guild, user, CARGO_PROMOTOR)
+        await _atualizar_resumo_caso(interaction.guild, caso)
 
     @ui.button(
         label="Registrar Prova", style=discord.ButtonStyle.primary,
@@ -397,12 +390,13 @@ class CasoView(ui.View):
         caso = _get_caso(interaction)
         if caso is None:
             return await interaction.response.send_message("Caso nao encontrado.", ephemeral=True)
-        if caso.juiz_id is None:
+
+        # O Juiz e um cargo fixo -- verificar se o usuario tem o cargo
+        user = interaction.user
+        tem_cargo_juiz = discord.utils.get(user.roles, name=CARGO_JUIZ) is not None
+        if not tem_cargo_juiz and not user.guild_permissions.administrator:
             return await interaction.response.send_message(
-                "Ainda nao ha Juiz designado!", ephemeral=True)
-        if interaction.user.id != caso.juiz_id:
-            return await interaction.response.send_message(
-                "Somente o Juiz pode dar o veredito!", ephemeral=True)
+                f"Somente quem tem o cargo **{CARGO_JUIZ}** pode dar o veredito!", ephemeral=True)
 
         # Verificar provas de ambos os lados
         if caso.provas_acusacao == 0:
@@ -548,6 +542,7 @@ class AdminView(ui.View):
                 ef = embed_caso_fechado(caso.numero, "Fechamento administrativo", interaction.user)
                 await canal.send(embed=ef)
                 await _limpar_cargos_caso(guild, caso)
+                await _encerrar_resumo_caso(guild, caso)
                 await _arquivar_canal(canal, guild)
                 fechados += 1
             casos_ativos.pop(channel_id, None)
@@ -566,7 +561,7 @@ class AdminView(ui.View):
 
         await interaction.response.defer(ephemeral=True)
         guild = interaction.guild
-        cargos_nomes = [CARGO_JUIZ, CARGO_ADVOGADO, CARGO_PROMOTOR, CARGO_REU, CARGO_VITIMA]
+        cargos_nomes = [CARGO_ADVOGADO, CARGO_PROMOTOR, CARGO_REU, CARGO_VITIMA]  # Juiz e fixo
         removidos = 0
 
         for nome in cargos_nomes:
@@ -616,9 +611,12 @@ class VereditoModal(ui.Modal, title="Dar Veredito"):
 
         culpado = veredito_raw == "culpado"
 
+        # Registrar quem deu o veredito como juiz do caso
+        caso.juiz_id = interaction.user.id
+
         reu = guild.get_member(caso.reu_id)
         vitima = guild.get_member(caso.vitima_id)
-        juiz = guild.get_member(caso.juiz_id)
+        juiz = interaction.user
         advogado = guild.get_member(caso.advogado_id) if caso.advogado_id else None
         promotor = guild.get_member(caso.promotor_id) if caso.promotor_id else None
 
@@ -647,6 +645,7 @@ class VereditoModal(ui.Modal, title="Dar Veredito"):
         await atualizar_casais_canal(guild)
 
         await _limpar_cargos_caso(guild, caso)
+        await _encerrar_resumo_caso(guild, caso)
         casos_ativos.pop(interaction.channel.id, None)
 
         await interaction.channel.send(
@@ -688,6 +687,7 @@ class FecharCasoModal(ui.Modal, title="Fechar Caso"):
             culpado=None, justificativa=motivo,
         )
         await _limpar_cargos_caso(guild, caso)
+        await _encerrar_resumo_caso(guild, caso)
         casos_ativos.pop(interaction.channel.id, None)
 
         await interaction.channel.send(
@@ -765,8 +765,8 @@ async def _atribuir_cargo(guild: discord.Guild, member: discord.Member, cargo_no
 
 
 async def _limpar_cargos_caso(guild: discord.Guild, caso: CasoData) -> None:
+    # Juiz e cargo fixo, nao limpa
     mapeamento = {
-        caso.juiz_id: CARGO_JUIZ,
         caso.advogado_id: CARGO_ADVOGADO,
         caso.promotor_id: CARGO_PROMOTOR,
         caso.reu_id: CARGO_REU,
@@ -832,3 +832,181 @@ async def _arquivar_canal(channel: discord.TextChannel, guild: discord.Guild) ->
         )
     except discord.Forbidden:
         print(f"[AVISO] Sem permissao para arquivar #{channel.name}")
+
+
+# ==========================================================================
+#  VIEW PUBLICA (botoes no canal de casos em andamento)
+# ==========================================================================
+class CasoPublicoView(ui.View):
+    """Botoes de advogado/promotor no canal publico de casos."""
+
+    def __init__(self, ticket_channel_id: int | None = None):
+        super().__init__(timeout=None)
+        self._ticket_channel_id = ticket_channel_id
+
+    def _get_caso_por_ticket(self) -> CasoData | None:
+        if self._ticket_channel_id:
+            return casos_ativos.get(self._ticket_channel_id)
+        return None
+
+    @ui.button(
+        label="Ser Advogado (Reu)", style=discord.ButtonStyle.primary,
+        emoji=EMOJI_ADVOGADO, custom_id="publico:advogado", row=0,
+    )
+    async def btn_advogado_pub(self, interaction: discord.Interaction, button: ui.Button):
+        caso = self._find_caso_from_message(interaction)
+        if caso is None:
+            return await interaction.response.send_message("Caso nao encontrado ou ja encerrado.", ephemeral=True)
+
+        user = interaction.user
+        if user.id in (caso.reu_id, caso.vitima_id):
+            return await interaction.response.send_message(
+                "Reu/Vitima nao pode ser Advogado!", ephemeral=True)
+        if caso.advogado_id is not None:
+            return await interaction.response.send_message(
+                "Ja existe um Advogado neste caso.", ephemeral=True)
+
+        guild = interaction.guild
+        caso.advogado_id = user.id
+
+        # Dar permissao no canal do ticket
+        canal_ticket = guild.get_channel(caso.channel_id)
+        if canal_ticket:
+            await canal_ticket.set_permissions(
+                user, view_channel=True, send_messages=True, read_message_history=True)
+
+        await _atribuir_cargo(guild, user, CARGO_ADVOGADO)
+        await _atualizar_resumo_caso(guild, caso)
+
+        # Atualizar embed no ticket
+        if caso.message_id and canal_ticket:
+            await _atualizar_embed_caso_direto(guild, canal_ticket, caso)
+
+        await interaction.response.send_message(
+            f"{user.mention} assumiu como **{CARGO_ADVOGADO}** no Caso #{caso.numero:04d}!",
+            ephemeral=True,
+        )
+        if canal_ticket:
+            await canal_ticket.send(
+                f"{user.mention} se voluntariou como **{CARGO_ADVOGADO}** pelo canal de casos!")
+
+    @ui.button(
+        label="Ser Promotor (Vitima)", style=discord.ButtonStyle.danger,
+        emoji=EMOJI_PROMOTOR, custom_id="publico:promotor", row=0,
+    )
+    async def btn_promotor_pub(self, interaction: discord.Interaction, button: ui.Button):
+        caso = self._find_caso_from_message(interaction)
+        if caso is None:
+            return await interaction.response.send_message("Caso nao encontrado ou ja encerrado.", ephemeral=True)
+
+        user = interaction.user
+        if user.id in (caso.reu_id, caso.vitima_id):
+            return await interaction.response.send_message(
+                "Reu/Vitima nao pode ser Promotor!", ephemeral=True)
+        if caso.promotor_id is not None:
+            return await interaction.response.send_message(
+                "Ja existe um Promotor neste caso.", ephemeral=True)
+
+        guild = interaction.guild
+        caso.promotor_id = user.id
+
+        # Dar permissao no canal do ticket
+        canal_ticket = guild.get_channel(caso.channel_id)
+        if canal_ticket:
+            await canal_ticket.set_permissions(
+                user, view_channel=True, send_messages=True, read_message_history=True)
+
+        await _atribuir_cargo(guild, user, CARGO_PROMOTOR)
+        await _atualizar_resumo_caso(guild, caso)
+
+        # Atualizar embed no ticket
+        if caso.message_id and canal_ticket:
+            await _atualizar_embed_caso_direto(guild, canal_ticket, caso)
+
+        await interaction.response.send_message(
+            f"{user.mention} assumiu como **{CARGO_PROMOTOR}** no Caso #{caso.numero:04d}!",
+            ephemeral=True,
+        )
+        if canal_ticket:
+            await canal_ticket.send(
+                f"{user.mention} se voluntariou como **{CARGO_PROMOTOR}** pelo canal de casos!")
+
+    def _find_caso_from_message(self, interaction: discord.Interaction) -> CasoData | None:
+        """Encontra o caso associado a esta mensagem de resumo."""
+        msg_id = interaction.message.id
+        for caso in casos_ativos.values():
+            if caso.resumo_msg_id == msg_id:
+                return caso
+        return None
+
+
+# ==========================================================================
+#  Helpers -- resumo publico
+# ==========================================================================
+async def _atualizar_resumo_caso(guild: discord.Guild, caso: CasoData) -> None:
+    """Atualiza a mensagem de resumo no canal de casos."""
+    if caso.resumo_msg_id is None:
+        return
+
+    canal_casos = discord.utils.get(guild.text_channels, name=CANAL_CASOS)
+    if canal_casos is None:
+        return
+
+    reu = guild.get_member(caso.reu_id)
+    vitima = guild.get_member(caso.vitima_id)
+    advogado = guild.get_member(caso.advogado_id) if caso.advogado_id else None
+    promotor = guild.get_member(caso.promotor_id) if caso.promotor_id else None
+    canal_ticket = guild.get_channel(caso.channel_id)
+
+    if not (reu and vitima and canal_ticket):
+        return
+
+    embed = embed_resumo_caso(
+        caso.numero, reu, vitima, caso.acusacao, canal_ticket,
+        advogado=advogado, promotor=promotor,
+    )
+
+    try:
+        msg = await canal_casos.fetch_message(caso.resumo_msg_id)
+        await msg.edit(embed=embed)
+    except discord.NotFound:
+        pass
+
+
+async def _encerrar_resumo_caso(guild: discord.Guild, caso: CasoData) -> None:
+    """Marca a mensagem de resumo como encerrada."""
+    if caso.resumo_msg_id is None:
+        return
+
+    canal_casos = discord.utils.get(guild.text_channels, name=CANAL_CASOS)
+    if canal_casos is None:
+        return
+
+    embed = embed_resumo_caso_encerrado(caso.numero)
+    try:
+        msg = await canal_casos.fetch_message(caso.resumo_msg_id)
+        await msg.edit(embed=embed, view=None)
+    except discord.NotFound:
+        pass
+
+
+async def _atualizar_embed_caso_direto(
+    guild: discord.Guild, canal: discord.TextChannel, caso: CasoData,
+) -> None:
+    """Atualiza o embed do caso no canal do ticket (sem interaction)."""
+    reu = guild.get_member(caso.reu_id)
+    vitima = guild.get_member(caso.vitima_id)
+    juiz = guild.get_member(caso.juiz_id) if caso.juiz_id else None
+    advogado = guild.get_member(caso.advogado_id) if caso.advogado_id else None
+    promotor = guild.get_member(caso.promotor_id) if caso.promotor_id else None
+
+    embed = embed_caso_atualizado(
+        caso.numero, reu, vitima, caso.acusacao, juiz, advogado, promotor,
+        provas_acusacao=caso.provas_acusacao, provas_defesa=caso.provas_defesa,
+    )
+
+    try:
+        msg = await canal.fetch_message(caso.message_id)
+        await msg.edit(embed=embed)
+    except discord.NotFound:
+        pass

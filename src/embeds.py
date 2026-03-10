@@ -14,6 +14,8 @@ from src.config import (
     COR_ADMIN,
     EMOJI_TRIBUNAL,
     EMOJI_JUIZ,
+    EMOJI_ADVOGADO,
+    EMOJI_PROMOTOR,
     EMOJI_VEREDITO,
     EMOJI_CULPADO,
     EMOJI_INOCENTE,
@@ -174,13 +176,12 @@ def embed_caso_aberto(
         value=(
             f"**Quer participar do julgamento?**\n"
             f"> {EMOJI_ADVOGADO} **{CARGO_ADVOGADO}** -- Defende o reu ({reu.display_name})\n"
-            f"> {EMOJI_PROMOTOR} **{CARGO_PROMOTOR}** -- Acusa em nome da vitima ({vitima.display_name})\n"
-            f"> {EMOJI_JUIZ} **{CARGO_JUIZ}** -- Conduz o processo e da o veredito\n\n"
+            f"> {EMOJI_PROMOTOR} **{CARGO_PROMOTOR}** -- Acusa em nome da vitima ({vitima.display_name})\n\n"
+            f"*O {CARGO_JUIZ} e um cargo fixo e sera designado automaticamente.*\n"
             f"*Use os botoes abaixo para assumir um papel.*"
         ),
         inline=False,
     )
-    embed.add_field(name=CARGO_JUIZ, value="*Aguardando...*", inline=True)
     embed.add_field(name=CARGO_ADVOGADO, value="*Aguardando...*", inline=True)
     embed.add_field(name=CARGO_PROMOTOR, value="*Aguardando...*", inline=True)
     embed.add_field(
@@ -211,11 +212,6 @@ def embed_caso_atualizado(
     embed.add_field(name=CARGO_REU, value=reu.mention, inline=True)
     embed.add_field(name=CARGO_VITIMA, value=vitima.mention, inline=True)
     embed.add_field(name="\u200b", value="\u200b", inline=True)
-    embed.add_field(
-        name=CARGO_JUIZ,
-        value=juiz.mention if juiz else "*Aguardando...*",
-        inline=True,
-    )
     embed.add_field(
         name=CARGO_ADVOGADO,
         value=advogado.mention if advogado else "*Aguardando...*",
@@ -350,4 +346,53 @@ def embed_historico(
         embed.add_field(name="Justificativa", value=justificativa[:1024], inline=False)
 
     embed.set_footer(text="Tribunal // Historico")
+    return embed
+
+
+# ==========================================================================
+#  Resumo publico do caso (canal de casos em andamento)
+# ==========================================================================
+def embed_resumo_caso(
+    numero: int,
+    reu: discord.Member,
+    vitima: discord.Member,
+    acusacao: str,
+    canal_ticket: discord.TextChannel,
+    advogado: discord.Member | None = None,
+    promotor: discord.Member | None = None,
+) -> discord.Embed:
+    embed = discord.Embed(
+        title=f"{EMOJI_TRIBUNAL} Caso #{numero:04d} -- Em andamento",
+        description=(
+            f"**{CARGO_VITIMA}** {vitima.mention} acusa **{CARGO_REU}** {reu.mention}:\n"
+            f">>> {acusacao[:500]}"
+        ),
+        color=COR_ABERTURA,
+        timestamp=datetime.now(BRT),
+    )
+    embed.add_field(
+        name="Papeis disponiveis",
+        value=(
+            f"{EMOJI_ADVOGADO} **{CARGO_ADVOGADO}** (defende o reu): "
+            f"{'`' + advogado.display_name + '`' if advogado else '*Vaga aberta!*'}\n"
+            f"{EMOJI_PROMOTOR} **{CARGO_PROMOTOR}** (acusa pela vitima): "
+            f"{'`' + promotor.display_name + '`' if promotor else '*Vaga aberta!*'}"
+        ),
+        inline=False,
+    )
+    embed.add_field(
+        name="Canal do caso",
+        value=canal_ticket.mention,
+        inline=True,
+    )
+    embed.set_footer(text="Use os botoes abaixo para se voluntariar!")
+    return embed
+
+
+def embed_resumo_caso_encerrado(numero: int) -> discord.Embed:
+    embed = discord.Embed(
+        title=f"{EMOJI_FECHAR} Caso #{numero:04d} -- Encerrado",
+        description="Este caso foi encerrado.",
+        color=COR_FECHAR,
+    )
     return embed

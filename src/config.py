@@ -28,6 +28,7 @@ CANAL_HISTORICO = "\U0001f4dc\u2503\u029c\u026a\ua731\u1d1b\u00f3\u0280\u026a\u1
 CANAL_REGRAS = "\U0001f4cb\u2503\u0280\u1d07\u0262\u0280\u1d00\ua731"  # 📋┃ʀᴇɢʀᴀꜱ
 CANAL_RANKING = "\U0001f3c6\u2503\u0280\u1d00\u0274\u1d0b\u026a\u0274\u0262"  # 🏆┃ʀᴀɴᴋɪɴɢ
 CANAL_CASAIS = "\U0001f491\u2503\u1d04\u1d00\ua731\u1d00\u026a\ua731"  # 💑┃ᴄᴀꜱᴀɪꜱ
+CANAL_CASOS = "\U0001f4cb\u2503\u1d04\u1d00\ua731\u1d0f\ua731"  # 📋┃ᴄᴀꜱᴏꜱ
 CANAL_SALAO = "\U0001f4ac\u2503\ua731\u1d00\u029f\u00e3\u1d0f"  # 💬┃ꜱᴀʟãᴏ
 CANAL_ADMIN = "\U0001f512\u2503\u1d00\u1d05\u1d0d\u026a\u0274"  # 🔒┃ᴀᴅᴍɪɴ
 
