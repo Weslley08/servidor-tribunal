@@ -306,7 +306,6 @@ class SelecionarCasalView(ui.View):
         placeholder="Selecione os dois membros do casal",
         min_values=2,
         max_values=2,
-        custom_id="casais:selecionar_membros",
     )
     async def selecionar(self, interaction: discord.Interaction, select: ui.UserSelect):
         guild = interaction.guild
@@ -611,7 +610,7 @@ class ConfirmarSeparacaoView(ui.View):
 
 
 async def atualizar_casais_canal(guild: discord.Guild) -> None:
-    """Reenvia os embeds no canal de casais (painel + ranking)."""
+    """Reenvia os embeds no canal de casais (ranking + botoes)."""
     canal = discord.utils.get(guild.text_channels, name=CANAL_CASAIS)
     if canal is None:
         print("[AVISO] Canal de casais nao encontrado.")
@@ -625,5 +624,6 @@ async def atualizar_casais_canal(guild: discord.Guild) -> None:
             except discord.NotFound:
                 pass
 
-    # Enviar apenas o ranking
+    # Enviar ranking e painel com botoes de registrar/separar
+    await canal.send(embed=embed_painel_casais(), view=CasaisView())
     await canal.send(embed=embed_ranking_casais(guild))

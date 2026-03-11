@@ -379,6 +379,12 @@ class CasoView(ui.View):
         if user.id in (caso.reu_id, caso.vitima_id):
             return await interaction.response.send_message(
                 "\u274c Reu/Vitima nao pode ser Advogado!", ephemeral=True)
+        if user.id == caso.autor_id:
+            return await interaction.response.send_message(
+                "\u274c O autor da tribuna nao pode ser Advogado!", ephemeral=True)
+        if user.id == caso.promotor_id:
+            return await interaction.response.send_message(
+                "\u274c Voce ja e o Promotor neste caso!", ephemeral=True)
         if caso.advogado_id is not None:
             adv = interaction.guild.get_member(caso.advogado_id)
             nome = adv.display_name if adv else "Alguem"
@@ -411,6 +417,12 @@ class CasoView(ui.View):
         if user.id in (caso.reu_id, caso.vitima_id):
             return await interaction.response.send_message(
                 "\u274c Reu/Vitima nao pode ser Promotor!", ephemeral=True)
+        if user.id == caso.autor_id:
+            return await interaction.response.send_message(
+                "\u274c O autor da tribuna nao pode ser Promotor!", ephemeral=True)
+        if user.id == caso.advogado_id:
+            return await interaction.response.send_message(
+                "\u274c Voce ja e o Advogado neste caso!", ephemeral=True)
         if caso.promotor_id is not None:
             prom = interaction.guild.get_member(caso.promotor_id)
             nome = prom.display_name if prom else "Alguem"
@@ -465,6 +477,11 @@ class CasoView(ui.View):
             return await interaction.response.send_message(
                 f"Somente quem tem o cargo **{CARGO_JUIZ}** pode dar o veredito!", ephemeral=True)
 
+        # Impedir partes envolvidas de julgar o proprio caso
+        if user.id in (caso.reu_id, caso.vitima_id, caso.advogado_id, caso.promotor_id, caso.autor_id):
+            return await interaction.response.send_message(
+                "\u274c Voce esta envolvido neste caso e nao pode dar o veredito!", ephemeral=True)
+
         # Verificar provas de ambos os lados
         if caso.provas_acusacao == 0:
             return await interaction.response.send_message(
@@ -482,6 +499,12 @@ class CasoView(ui.View):
         guild = interaction.guild
         reu = guild.get_member(caso.reu_id)
         vitima = guild.get_member(caso.vitima_id)
+
+        if reu is None or vitima is None:
+            return await interaction.response.send_message(
+                "\u274c O reu ou vitima nao esta mais no servidor. Nao e possivel dar veredito.",
+                ephemeral=True,
+            )
 
         embed_escolha = discord.Embed(
             title=f"{EMOJI_VEREDITO} Dar Veredito -- Caso #{caso.numero:04d}",
@@ -889,6 +912,12 @@ class ConfirmarVereditoView(ui.View):
         advogado = guild.get_member(caso.advogado_id) if caso.advogado_id else None
         promotor = guild.get_member(caso.promotor_id) if caso.promotor_id else None
 
+        if reu is None or vitima is None:
+            return await interaction.response.edit_message(
+                content="\u274c O reu ou vitima nao esta mais no servidor.",
+                embed=None, view=None,
+            )
+
         # Fechar a mensagem efemera de confirmacao
         await interaction.response.edit_message(
             content=f"{EMOJI_VEREDITO} Veredito aplicado!",
@@ -1027,6 +1056,8 @@ async def _atualizar_embed_caso(interaction: discord.Interaction, caso: CasoData
     guild = interaction.guild
     reu = guild.get_member(caso.reu_id)
     vitima = guild.get_member(caso.vitima_id)
+    if reu is None or vitima is None:
+        return
     juiz = guild.get_member(caso.juiz_id) if caso.juiz_id else None
     advogado = guild.get_member(caso.advogado_id) if caso.advogado_id else None
     promotor = guild.get_member(caso.promotor_id) if caso.promotor_id else None
@@ -1180,6 +1211,12 @@ class CasoPublicoView(ui.View):
         if user.id in (caso.reu_id, caso.vitima_id):
             return await interaction.response.send_message(
                 "\u274c Reu/Vitima nao pode ser Advogado!", ephemeral=True)
+        if user.id == caso.autor_id:
+            return await interaction.response.send_message(
+                "\u274c O autor da tribuna nao pode ser Advogado!", ephemeral=True)
+        if user.id == caso.promotor_id:
+            return await interaction.response.send_message(
+                "\u274c Voce ja e o Promotor neste caso!", ephemeral=True)
         if caso.advogado_id is not None:
             adv = interaction.guild.get_member(caso.advogado_id)
             nome = adv.display_name if adv else "Alguem"
@@ -1226,6 +1263,12 @@ class CasoPublicoView(ui.View):
         if user.id in (caso.reu_id, caso.vitima_id):
             return await interaction.response.send_message(
                 "\u274c Reu/Vitima nao pode ser Promotor!", ephemeral=True)
+        if user.id == caso.autor_id:
+            return await interaction.response.send_message(
+                "\u274c O autor da tribuna nao pode ser Promotor!", ephemeral=True)
+        if user.id == caso.advogado_id:
+            return await interaction.response.send_message(
+                "\u274c Voce ja e o Advogado neste caso!", ephemeral=True)
         if caso.promotor_id is not None:
             prom = interaction.guild.get_member(caso.promotor_id)
             nome = prom.display_name if prom else "Alguem"
@@ -1323,6 +1366,8 @@ async def _atualizar_embed_caso_direto(
     """Atualiza o embed do caso no canal do ticket (sem interaction)."""
     reu = guild.get_member(caso.reu_id)
     vitima = guild.get_member(caso.vitima_id)
+    if reu is None or vitima is None:
+        return
     juiz = guild.get_member(caso.juiz_id) if caso.juiz_id else None
     advogado = guild.get_member(caso.advogado_id) if caso.advogado_id else None
     promotor = guild.get_member(caso.promotor_id) if caso.promotor_id else None
@@ -1337,3 +1382,29 @@ async def _atualizar_embed_caso_direto(
         await msg.edit(embed=embed)
     except discord.NotFound:
         pass
+
+    # Notificar quando caso fica pronto para veredito
+    pronto = (
+        advogado is not None
+        and promotor is not None
+        and caso.provas_acusacao > 0
+        and caso.provas_defesa > 0
+    )
+    if pronto and not getattr(caso, '_notificado_pronto', False):
+        caso._notificado_pronto = True
+        cargo_juiz = discord.utils.get(guild.roles, name=CARGO_JUIZ)
+        mention_juiz = cargo_juiz.mention if cargo_juiz else f"**{CARGO_JUIZ}**"
+        embed_pronto = discord.Embed(
+            title=f"\u2705 Caso #{caso.numero:04d} -- Pronto para Veredito!",
+            description=(
+                f"Todas as condicoes foram atendidas:\n"
+                f"> \u2705 Advogado: {advogado.mention}\n"
+                f"> \u2705 Promotor: {promotor.mention}\n"
+                f"> \u2705 Provas da acusacao: {caso.provas_acusacao}\n"
+                f"> \u2705 Provas da defesa: {caso.provas_defesa}\n\n"
+                f"{mention_juiz}, o caso aguarda seu veredito. "
+                f"Use o botao **{EMOJI_VEREDITO} Dar Veredito**."
+            ),
+            color=COR_INOCENTE,
+        )
+        await canal.send(embed=embed_pronto)

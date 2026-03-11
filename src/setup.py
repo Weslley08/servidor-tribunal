@@ -200,7 +200,7 @@ async def enviar_embeds_fixos(guild: discord.Guild, resultado: dict):
     await atualizar_ranking_canal(guild)
     print(f"  [EMBED] Ranking atualizado")
 
-    # -- Casais (apenas ranking)
+    # -- Casais (ranking + painel com botoes)
     from src.casais import atualizar_casais_canal
     await atualizar_casais_canal(guild)
     print(f"  [EMBED] Casais atualizado")
