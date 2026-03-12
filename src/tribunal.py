@@ -85,7 +85,8 @@ def proximo_numero() -> int:
     return n
 
 
-# -- Armazenamento em memoria dos casos ativos ----------------------------
+# -- Armazenamento de casos ativos (persistido em JSON) -------------------
+CASOS_FILE = DATA_DIR / "casos_ativos.json"
 # channel_id -> CasoData
 casos_ativos: dict[int, CasoData] = {}
 
@@ -134,6 +135,62 @@ class CasoData:
         if user_id in (self.reu_id, self.advogado_id):
             return "defesa"
         return None
+
+    def to_dict(self) -> dict:
+        return {
+            "numero": self.numero,
+            "autor_id": self.autor_id,
+            "reu_id": self.reu_id,
+            "vitima_id": self.vitima_id,
+            "acusacao": self.acusacao,
+            "channel_id": self.channel_id,
+            "message_id": self.message_id,
+            "resumo_msg_id": self.resumo_msg_id,
+            "juiz_id": self.juiz_id,
+            "advogado_id": self.advogado_id,
+            "promotor_id": self.promotor_id,
+            "provas": self.provas,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "CasoData":
+        caso = cls(
+            numero=d["numero"],
+            autor_id=d["autor_id"],
+            reu_id=d["reu_id"],
+            vitima_id=d["vitima_id"],
+            acusacao=d["acusacao"],
+            channel_id=d["channel_id"],
+            message_id=d.get("message_id"),
+        )
+        caso.resumo_msg_id = d.get("resumo_msg_id")
+        caso.juiz_id = d.get("juiz_id")
+        caso.advogado_id = d.get("advogado_id")
+        caso.promotor_id = d.get("promotor_id")
+        caso.provas = d.get("provas", [])
+        return caso
+
+
+def _salvar_casos() -> None:
+    """Persiste casos_ativos em JSON."""
+    DATA_DIR.mkdir(exist_ok=True)
+    payload = {str(ch_id): caso.to_dict() for ch_id, caso in casos_ativos.items()}
+    with open(CASOS_FILE, "w", encoding="utf-8") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False)
+
+
+def _carregar_casos() -> None:
+    """Restaura casos_ativos do JSON."""
+    if not CASOS_FILE.exists():
+        return
+    try:
+        with open(CASOS_FILE, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        for ch_id_str, d in payload.items():
+            casos_ativos[int(ch_id_str)] = CasoData.from_dict(d)
+        print(f"[TRIBUNAL] {len(casos_ativos)} caso(s) restaurado(s) do disco.", flush=True)
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        print(f"[TRIBUNAL] Erro ao carregar casos: {e}", flush=True)
 
 
 # ==========================================================================
@@ -347,6 +404,8 @@ class AcusacaoModal(ui.Modal, title="Abrir Tribuna"):
             resumo_msg = await canal_casos.send(embed=resumo_embed)
             caso.resumo_msg_id = resumo_msg.id
 
+        _salvar_casos()
+
         await interaction.response.send_message(
             f"\u2705 Tribuna **#{numero:04d}** aberta com sucesso!\n"
             f"> {EMOJI_TRIBUNAL} Canal: {canal.mention}\n"
@@ -390,6 +449,7 @@ class CasoView(ui.View):
                 f"\u274c **{nome}** ja e o Advogado neste caso.", ephemeral=True)
 
         caso.advogado_id = user.id
+        _salvar_casos()
         await interaction.channel.set_permissions(
             user, view_channel=True, send_messages=True, read_message_history=True)
         await _atualizar_embed_caso(interaction, caso)
@@ -428,6 +488,7 @@ class CasoView(ui.View):
                 f"\u274c **{nome}** ja e o Promotor neste caso.", ephemeral=True)
 
         caso.promotor_id = user.id
+        _salvar_casos()
         await interaction.channel.set_permissions(
             user, view_channel=True, send_messages=True, read_message_history=True)
         await _atualizar_embed_caso(interaction, caso)
@@ -705,6 +766,7 @@ class ConfirmarFecharTodosView(ui.View):
                 fechados += 1
             casos_ativos.pop(channel_id, None)
 
+        _salvar_casos()
         await interaction.edit_original_response(
             content=f"{EMOJI_FECHAR} **{fechados} caso(s)** fechado(s) com sucesso.",
         )
@@ -804,6 +866,7 @@ class ConfirmarArquivarSemProvasView(ui.View):
         await _limpar_cargos_caso(guild, caso)
         await _encerrar_resumo_caso(guild, caso)
         casos_ativos.pop(caso.channel_id, None)
+        _salvar_casos()
 
         if canal:
             await canal.send(
@@ -984,6 +1047,7 @@ class ConfirmarVereditoView(ui.View):
         await _limpar_cargos_caso(guild, caso)
         await _encerrar_resumo_caso(guild, caso)
         casos_ativos.pop(caso.channel_id, None)
+        _salvar_casos()
 
         if canal:
             await canal.send(
@@ -1041,6 +1105,7 @@ class FecharCasoModal(ui.Modal, title="Fechar Caso"):
         await _limpar_cargos_caso(guild, caso)
         await _encerrar_resumo_caso(guild, caso)
         casos_ativos.pop(interaction.channel.id, None)
+        _salvar_casos()
 
         await interaction.channel.send(
             f"{EMOJI_FECHAR} Caso fechado. Canal sera arquivado em 60 segundos.")
