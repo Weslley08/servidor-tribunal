@@ -562,6 +562,51 @@ class CasoView(ui.View):
             ephemeral=True,
         )
 
+    @ui.button(
+        label="Arquivar (Sem Provas)", style=discord.ButtonStyle.secondary,
+        emoji="\U0001f4c1", custom_id="caso:arquivar_sem_provas", row=2,
+    )
+    async def btn_arquivar_sem_provas(self, interaction: discord.Interaction, button: ui.Button):
+        caso = _get_caso(interaction)
+        if caso is None:
+            return await interaction.response.send_message("Caso nao encontrado.", ephemeral=True)
+
+        user = interaction.user
+        tem_cargo_juiz = discord.utils.get(user.roles, name=CARGO_JUIZ) is not None
+        if not tem_cargo_juiz and not user.guild_permissions.administrator:
+            return await interaction.response.send_message(
+                f"Somente quem tem o cargo **{CARGO_JUIZ}** ou admin pode arquivar por falta de provas!",
+                ephemeral=True,
+            )
+
+        # Impedir partes envolvidas de arquivar o proprio caso
+        if user.id in (caso.reu_id, caso.vitima_id, caso.advogado_id, caso.promotor_id, caso.autor_id):
+            return await interaction.response.send_message(
+                "\u274c Voce esta envolvido neste caso e nao pode arquiva-lo!", ephemeral=True)
+
+        guild = interaction.guild
+        reu = guild.get_member(caso.reu_id)
+        vitima = guild.get_member(caso.vitima_id)
+
+        embed_conf = discord.Embed(
+            title=f"\U0001f4c1 Arquivar Caso #{caso.numero:04d} por Falta de Provas?",
+            description=(
+                f"**Reu:** {reu.mention if reu else 'N/A'}\n"
+                f"**Vitima:** {vitima.mention if vitima else 'N/A'}\n"
+                f"**Provas acusacao:** {caso.provas_acusacao}\n"
+                f"**Provas defesa:** {caso.provas_defesa}\n\n"
+                "O caso sera encerrado **sem veredito** por falta de provas\n"
+                "e o canal sera arquivado. Nenhum ranking sera afetado.\n\n"
+                "Tem certeza?"
+            ),
+            color=COR_FECHAR,
+        )
+        await interaction.response.send_message(
+            embed=embed_conf,
+            view=ConfirmarArquivarSemProvasView(caso, user.id),
+            ephemeral=True,
+        )
+
 
 # ==========================================================================
 #  MODAL -- Registrar Prova
@@ -784,6 +829,74 @@ class ConfirmarFecharCasoView(ui.View):
     async def btn_cancelar(self, interaction: discord.Interaction, button: ui.Button):
         await interaction.response.edit_message(
             content="Fechamento cancelado.", embed=None, view=None,
+        )
+        self.stop()
+
+    async def on_timeout(self):
+        pass
+
+
+# ==========================================================================
+#  VIEW -- Confirmar Arquivamento por Falta de Provas
+# ==========================================================================
+class ConfirmarArquivarSemProvasView(ui.View):
+    """Confirmacao antes de arquivar caso por falta de provas."""
+
+    def __init__(self, caso: CasoData, user_id: int):
+        super().__init__(timeout=30)
+        self.caso = caso
+        self.user_id = user_id
+
+    @ui.button(
+        label="Sim, Arquivar", style=discord.ButtonStyle.danger,
+        emoji="\U0001f4c1", row=0,
+    )
+    async def btn_confirmar(self, interaction: discord.Interaction, button: ui.Button):
+        if interaction.user.id != self.user_id:
+            return await interaction.response.send_message(
+                "Somente quem iniciou pode confirmar.", ephemeral=True)
+
+        caso = self.caso
+        guild = interaction.guild
+        motivo = "Caso arquivado pelo Juiz por falta de provas"
+
+        await interaction.response.edit_message(
+            content="\U0001f4c1 Caso arquivado por falta de provas!",
+            embed=None, view=None,
+        )
+
+        canal = guild.get_channel(caso.channel_id)
+        if canal:
+            embed_f = embed_caso_fechado(caso.numero, motivo, interaction.user)
+            await canal.send(embed=embed_f)
+
+        reu = guild.get_member(caso.reu_id)
+        vitima = guild.get_member(caso.vitima_id)
+        juiz = interaction.user
+        advogado = guild.get_member(caso.advogado_id) if caso.advogado_id else "N/A"
+        promotor = guild.get_member(caso.promotor_id) if caso.promotor_id else "N/A"
+
+        await _enviar_historico(
+            guild, caso, reu, vitima, juiz, advogado, promotor,
+            culpado=None, justificativa=motivo,
+        )
+        await _limpar_cargos_caso(guild, caso)
+        await _encerrar_resumo_caso(guild, caso)
+        casos_ativos.pop(caso.channel_id, None)
+
+        if canal:
+            await canal.send(
+                f"{EMOJI_FECHAR} Caso arquivado por falta de provas. Canal sera arquivado em 60 segundos.")
+            await _arquivar_canal(canal, guild)
+
+        self.stop()
+
+    @ui.button(
+        label="Cancelar", style=discord.ButtonStyle.secondary, row=0,
+    )
+    async def btn_cancelar(self, interaction: discord.Interaction, button: ui.Button):
+        await interaction.response.edit_message(
+            content="Operacao cancelada.", embed=None, view=None,
         )
         self.stop()
 
