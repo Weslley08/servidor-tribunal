@@ -365,8 +365,84 @@ class CasoView(ui.View):
         super().__init__(timeout=None)
 
     @ui.button(
+        label="Ser Advogado (Reu)", style=discord.ButtonStyle.primary,
+        emoji=EMOJI_ADVOGADO, custom_id="caso:advogado", row=0,
+    )
+    async def btn_advogado(self, interaction: discord.Interaction, button: ui.Button):
+        caso = _get_caso(interaction)
+        if caso is None:
+            return await interaction.response.send_message("Caso nao encontrado.", ephemeral=True)
+
+        user = interaction.user
+        if user.id in (caso.reu_id, caso.vitima_id):
+            return await interaction.response.send_message(
+                "\u274c Reu/Vitima nao pode ser Advogado!", ephemeral=True)
+        if user.id == caso.autor_id:
+            return await interaction.response.send_message(
+                "\u274c O autor da tribuna nao pode ser Advogado!", ephemeral=True)
+        if user.id == caso.promotor_id:
+            return await interaction.response.send_message(
+                "\u274c Voce ja e o Promotor neste caso!", ephemeral=True)
+        if caso.advogado_id is not None:
+            adv = interaction.guild.get_member(caso.advogado_id)
+            nome = adv.display_name if adv else "Alguem"
+            return await interaction.response.send_message(
+                f"\u274c **{nome}** ja e o Advogado neste caso.", ephemeral=True)
+
+        caso.advogado_id = user.id
+        await interaction.channel.set_permissions(
+            user, view_channel=True, send_messages=True, read_message_history=True)
+        await _atualizar_embed_caso(interaction, caso)
+
+        embed_role = discord.Embed(
+            description=f"{EMOJI_ADVOGADO} {user.mention} assumiu como **{CARGO_ADVOGADO}** (defesa do reu)",
+            color=COR_ABERTURA,
+        )
+        await interaction.response.send_message(embed=embed_role)
+        await _atribuir_cargo(interaction.guild, user, CARGO_ADVOGADO)
+        await _atualizar_resumo_caso(interaction.guild, caso)
+
+    @ui.button(
+        label="Ser Promotor (Vitima)", style=discord.ButtonStyle.danger,
+        emoji=EMOJI_PROMOTOR, custom_id="caso:promotor", row=0,
+    )
+    async def btn_promotor(self, interaction: discord.Interaction, button: ui.Button):
+        caso = _get_caso(interaction)
+        if caso is None:
+            return await interaction.response.send_message("Caso nao encontrado.", ephemeral=True)
+
+        user = interaction.user
+        if user.id in (caso.reu_id, caso.vitima_id):
+            return await interaction.response.send_message(
+                "\u274c Reu/Vitima nao pode ser Promotor!", ephemeral=True)
+        if user.id == caso.autor_id:
+            return await interaction.response.send_message(
+                "\u274c O autor da tribuna nao pode ser Promotor!", ephemeral=True)
+        if user.id == caso.advogado_id:
+            return await interaction.response.send_message(
+                "\u274c Voce ja e o Advogado neste caso!", ephemeral=True)
+        if caso.promotor_id is not None:
+            prom = interaction.guild.get_member(caso.promotor_id)
+            nome = prom.display_name if prom else "Alguem"
+            return await interaction.response.send_message(
+                f"\u274c **{nome}** ja e o Promotor neste caso.", ephemeral=True)
+
+        caso.promotor_id = user.id
+        await interaction.channel.set_permissions(
+            user, view_channel=True, send_messages=True, read_message_history=True)
+        await _atualizar_embed_caso(interaction, caso)
+
+        embed_role = discord.Embed(
+            description=f"{EMOJI_PROMOTOR} {user.mention} assumiu como **{CARGO_PROMOTOR}** (acusacao pela vitima)",
+            color=COR_CULPADO,
+        )
+        await interaction.response.send_message(embed=embed_role)
+        await _atribuir_cargo(interaction.guild, user, CARGO_PROMOTOR)
+        await _atualizar_resumo_caso(interaction.guild, caso)
+
+    @ui.button(
         label="Dar Veredito", style=discord.ButtonStyle.success,
-        emoji=EMOJI_VEREDITO, custom_id="caso:veredito", row=0,
+        emoji=EMOJI_VEREDITO, custom_id="caso:veredito", row=1,
     )
     async def btn_veredito(self, interaction: discord.Interaction, button: ui.Button):
         caso = _get_caso(interaction)
@@ -427,7 +503,7 @@ class CasoView(ui.View):
 
     @ui.button(
         label="Fechar Caso", style=discord.ButtonStyle.secondary,
-        emoji=EMOJI_FECHAR, custom_id="caso:fechar", row=0,
+        emoji=EMOJI_FECHAR, custom_id="caso:fechar", row=1,
     )
     async def btn_fechar(self, interaction: discord.Interaction, button: ui.Button):
         caso = _get_caso(interaction)
@@ -467,7 +543,7 @@ class CasoView(ui.View):
 
     @ui.button(
         label="Arquivar (Sem Provas)", style=discord.ButtonStyle.secondary,
-        emoji="\U0001f4c1", custom_id="caso:arquivar_sem_provas", row=1,
+        emoji="\U0001f4c1", custom_id="caso:arquivar_sem_provas", row=2,
     )
     async def btn_arquivar_sem_provas(self, interaction: discord.Interaction, button: ui.Button):
         caso = _get_caso(interaction)
